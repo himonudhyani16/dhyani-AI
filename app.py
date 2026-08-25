@@ -3,6 +3,7 @@ import requests
 import asyncio
 import os
 import re
+import urllib.parse
 from PIL import Image
 
 if not hasattr(Image, 'ANTIALIAS'):
@@ -51,17 +52,21 @@ with col1:
     ])
 
 with col2:
+    char_desc = st.text_input(
+        "3. 👤 कैरेक्टर विवरण (इमेज न होने पर AI इससे बनाएगा):", 
+        value="Cute baby monkey cartoon face looking directly at camera, 3d pixar animation style"
+    )
     custom_img = st.file_uploader(
-        "3. 🖼️ कैरेक्टर फोटो अपलोड करें (अनिवार्य):", 
+        "4. 🖼️ कैरेक्टर फोटो अपलोड करें (वैकल्पिक):", 
         type=["png", "jpg", "jpeg"]
     )
     aspect_ratio = st.selectbox(
-        "4. 📐 वीडियो साइज़ चुनें:",
+        "5. 📐 वीडियो साइज़ चुनें:",
         ["16:9 (YouTube Landscape)", "9:16 (Shorts / Reels Portrait)", "1:1 (Square)"]
     )
 
 if custom_img:
-    st.image(custom_img, caption="✅ चुनी गई कैरेक्टर फोटो", width=200)
+    st.image(custom_img, caption="✅ अपलोड की गई फोटो", width=200)
 
 VOICE_MAP = {
     "Natural Male (Madhur - कथावाचक)": "hi-IN-MadhurNeural",
@@ -72,6 +77,19 @@ async def generate_voice(text, voice_code, out_path):
     import edge_tts
     comm = edge_tts.Communicate(text, voice_code)
     await comm.save(out_path)
+
+def generate_ai_character_image(prompt_text, save_path):
+    """अगर यूजर फोटो न दे तो AI से साफ़ फ्रंट-फेसिंग कैरेक्टर इमेज बनाना"""
+    clean_prompt = f"{prompt_text}, front-facing portrait, looking at camera, clear face and eyes, high quality"
+    encoded_prompt = urllib.parse.quote(clean_prompt)
+    image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=512&height=512&nologo=true&seed=42"
+    
+    response = requests.get(image_url, timeout=30)
+    if response.status_code == 200:
+        with open(save_path, "wb") as f:
+            f.write(response.content)
+        return True
+    return False
 
 def extract_valid_path(raw_res):
     if isinstance(raw_res, dict):
@@ -96,15 +114,24 @@ if st.button("🚀 Generate Complete 3D Lip-Sync Video", type="primary", use_con
         st.error("❌ Kaggle बैकएंड कनेक्ट नहीं है!")
     elif not story_text.strip():
         st.error("❌ कृपया कहानी दर्ज करें!")
-    elif not custom_img:
-        st.error("❌ कृपया कैरेक्टर की फोटो जरूर अपलोड करें!")
     else:
         status = st.status("🎬 वीडियो प्रोडक्शन शुरू हो रहा है...", expanded=True)
         os.makedirs("temp_render/scenes", exist_ok=True)
 
         saved_img_path = os.path.abspath("temp_render/character_input.png")
-        with open(saved_img_path, "wb") as f:
-            f.write(custom_img.getbuffer())
+        
+        # 1. इमेज चेक / ऑटो-जनरेशन
+        if custom_img:
+            status.write("🖼️ आपकी अपलोड की गई फोटो का इस्तेमाल हो रहा है...")
+            with open(saved_img_path, "wb") as f:
+                f.write(custom_img.getbuffer())
+        else:
+            status.write("🎨 फोटो नहीं मिली — AI नया कैरेक्टर बना रहा है...")
+            success = generate_ai_character_image(char_desc, saved_img_path)
+            if not success:
+                st.error("❌ कैरेक्टर इमेज नहीं बन पाई!")
+                st.stop()
+            st.image(saved_img_path, caption="✨ AI द्वारा बनाया गया कैरेक्टर", width=200)
 
         sentences = [s.strip() for s in re.split(r'[।\n\.]+', story_text) if len(s.strip()) > 3]
         total = len(sentences)
@@ -118,7 +145,6 @@ if st.button("🚀 Generate Complete 3D Lip-Sync Video", type="primary", use_con
             status.write(f"👄 **सीन {idx+1}/{total}:** AI लिप-सिंक रेंडर कर रहा है...")
             try:
                 client = Client(kaggle_url)
-                # पोजीशनल आर्ग्युमेंट्स (image, audio) भेजे जा रहे हैं ताकि कोई पैरामीटर नेम मिसमैच न हो
                 video_res = client.predict(
                     handle_file(saved_img_path),
                     handle_file(audio_path),
