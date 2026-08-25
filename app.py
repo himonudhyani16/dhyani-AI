@@ -2,11 +2,12 @@ import asyncio
 from io import BytesIO
 import os
 import re
-from PIL import Image
+import time
+from PIL import Image, ImageDraw, ImageFont
 import requests
 import streamlit as st
 
-# MoviePy v1 और v2 दोनों के लिए सपोर्ट
+# MoviePy v1 और v2 दोनों के लिए कम्पैटिबल इम्पोर्ट
 try:
   from moviepy.editor import AudioFileClip, ImageClip, concatenate_videoclips
 except Exception:
@@ -68,19 +69,32 @@ async def generate_voice(text, voice_code, output_path):
 
 def get_ai_image(prompt, width, height):
   clean_prompt = requests.utils.quote(
-      f"3D mythological cinematic animated scene, {prompt}, 8k highly detailed"
-      " Disney Pixar aesthetic"
+      f"3D cinematic mythological scene, {prompt}, highly detailed, Disney"
+      " Pixar animation style, 8k, vibrant lighting"
   )
-  url = f"https://image.pollinations.ai/prompt/{clean_prompt}?width={width}&height={height}&nologo=true"
-  response = requests.get(url, timeout=30)
-  return Image.open(BytesIO(response.content))
+  url = f"https://image.pollinations.ai/prompt/{clean_prompt}?width={width}&height={height}&nologo=true&seed={int(time.time())}"
+
+  # 3 बार कोशिश करेगा
+  for attempt in range(3):
+    try:
+      response = requests.get(url, timeout=75)
+      if response.status_code == 200:
+        return Image.open(BytesIO(response.content))
+    except Exception:
+      time.sleep(2)
+
+  # अगर इंटरनेट या सर्वर बहुत स्लो हो तो सुंदर बैकअप बैकग्राउंड बनाएगा (ताकि क्रैश न हो)
+  fallback_img = Image.new("RGB", (width, height), color=(20, 25, 45))
+  draw = ImageDraw.Draw(fallback_img)
+  draw.rectangle([(20, 20), (width - 20, height - 20)], outline=(212, 175, 55))
+  return fallback_img
 
 
 if st.button("🚀 Generate Full Video", type="primary", use_container_width=True):
   if not story_input.strip():
     st.error("कृपया पहले कहानी दर्ज करें!")
   else:
-    with st.spinner("⏳ AI वीडियो तैयार कर रहा है..."):
+    with st.spinner("⏳ AI वीडियो तैयार कर रहा है (वॉयस, 3D सीन और रेंडरिंग)..."):
       os.makedirs("temp_files", exist_ok=True)
       sentences = [
           s.strip()
@@ -97,7 +111,11 @@ if st.button("🚀 Generate Full Video", type="primary", use_container_width=Tru
       )
       video_clips = []
 
+      progress_bar = st.progress(0)
+      total_scenes = len(sentences)
+
       for idx, sentence in enumerate(sentences):
+        # 1. Voice
         audio_path = f"temp_files/audio_{idx}.mp3"
         asyncio.run(generate_voice(sentence, voice_code, audio_path))
         audio_clip = AudioFileClip(audio_path)
@@ -107,14 +125,16 @@ if st.button("🚀 Generate Full Video", type="primary", use_container_width=Tru
             else audio_clip.duration
         )
 
+        # 2. Image
         img_path = f"temp_files/img_{idx}.png"
         if uploaded_img is not None and idx == 0:
           user_image = Image.open(uploaded_img)
           user_image.save(img_path)
         else:
-          img = get_ai_image(sentence[:60], w, h)
+          img = get_ai_image(sentence[:80], w, h)
           img.save(img_path)
 
+        # 3. Clip
         try:
           img_clip = (
               ImageClip(img_path).set_duration(duration).resize(newsize=(w, h))
@@ -127,14 +147,17 @@ if st.button("🚀 Generate Full Video", type="primary", use_container_width=Tru
           clip = img_clip.with_audio(audio_clip.with_duration(duration))
 
         video_clips.append(clip)
+        progress_bar.progress((idx + 1) / (total_scenes + 1))
 
+      # 4. Render Final Video
       final_video = concatenate_videoclips(video_clips, method="compose")
       output_path = "temp_files/final_output.mp4"
       final_video.write_videofile(
           output_path, fps=24, codec="libx264", audio_codec="aac"
       )
+      progress_bar.progress(1.0)
 
-      st.success("✅ वीडियो तैयार हो गई!")
+      st.success("✅ वीडियो सफलतापूर्वक तैयार हो गई!")
       st.video(output_path)
       with open(output_path, "rb") as f:
         st.download_button(
