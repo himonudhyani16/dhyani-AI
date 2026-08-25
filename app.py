@@ -5,6 +5,7 @@ import os
 import re
 from PIL import Image
 
+# Pillow Compatibility Fix
 if not hasattr(Image, 'ANTIALIAS'):
     Image.ANTIALIAS = Image.Resampling.LANCZOS
 
@@ -52,9 +53,16 @@ with col1:
 
 with col2:
     char_desc = st.text_input(
-        "3. 👤 कैरेक्टर विवरण:", 
-        value="Cute fluffy baby bear cub in magical forest"
+        "3. 👤 कैरेक्टर विवरण / प्रॉम्प्ट:", 
+        value="Cute fluffy baby bear cub in magical fairytale forest"
     )
+    # 🖼️ इमेज अपलोड बॉक्स
+    custom_img = st.file_uploader(
+        "4. 🖼️ कैरेक्टर / संदर्भ फोटो अपलोड करें (वैकल्पिक):", 
+        type=["png", "jpg", "jpeg"]
+    )
+    if custom_img:
+        st.image(custom_img, caption="✅ चुनी गई संदर्भ इमेज", use_container_width=True)
 
 VOICE_MAP = {
     "Natural Male (Madhur - कथावाचक)": "hi-IN-MadhurNeural",
@@ -85,6 +93,13 @@ if st.button("🚀 Generate Complete 3D Moving Video", type="primary", use_conta
         status = st.status("🎬 3D वीडियो प्रोडक्शन शुरू हो रहा है...", expanded=True)
         os.makedirs("temp_render/scenes", exist_ok=True)
 
+        # अगर यूजर ने इमेज अपलोड की है तो उसे सेव करना
+        saved_img_path = None
+        if custom_img:
+            saved_img_path = "temp_render/custom_input_image.png"
+            with open(saved_img_path, "wb") as f:
+                f.write(custom_img.getbuffer())
+
         sentences = [s.strip() for s in re.split(r'[।\n\.]+', story_text) if len(s.strip()) > 3]
         total = len(sentences)
         scene_clips = []
@@ -101,6 +116,7 @@ if st.button("🚀 Generate Complete 3D Moving Video", type="primary", use_conta
                 client = Client(kaggle_url)
                 clean_char = char_desc.replace("3D", "").strip()
                 video_prompt = f"{clean_char}, action: {sentence}"
+                
                 video_res = client.predict(
                     prompt=video_prompt,
                     api_name="/predict"
