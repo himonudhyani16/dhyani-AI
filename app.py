@@ -28,7 +28,7 @@ st.title("🎬 ध्यानी AI — 3D Text-to-Video Studio")
 if kaggle_url:
     st.success("🟢 AI GPU Video Engine कनेक्टेड है!")
 else:
-    st.warning("⚠️ Kaggle Engine कनेक्ट नहीं है। कृपया पहले Kaggle पर Step 2 कोड रन करें।")
+    st.warning("⚠️ Kaggle Engine कनेक्ट नहीं है। कृपया पहले Kaggle पर कोड रन करें।")
 
 st.markdown("---")
 
@@ -48,7 +48,7 @@ with col1:
 with col2:
     char_desc = st.text_input(
         "3. 👤 3D कैरेक्टर और स्टाइल:", 
-        value="Cute 3D fluffy rabbit in blue overalls, Pixar animation style"
+        value="Cute 3D fluffy baby bear cub, Pixar animation style"
     )
 
 VOICE_MAP = {
@@ -75,13 +75,13 @@ if st.button("🚀 Generate Complete 3D Moving Video", type="primary", use_conta
         scene_clips = []
 
         for idx, sentence in enumerate(sentences):
-            status.write(f"🎙️ **सीन {idx+1}/{total}:** आवाज़ रिकॉर्ड की जा रही है...")
+            status.write(f"🎙️ **सीन {idx+1}/{total}:** आवाज़ तैयार हो रही है...")
             audio_path = f"temp_render/scenes/audio_{idx}.mp3"
             asyncio.run(generate_voice(sentence, VOICE_MAP[voice], audio_path))
             audio_clip = AudioFileClip(audio_path)
             dur = audio_clip.duration
 
-            status.write(f"🎥 **सीन {idx+1}/{total}:** AI असली 3D मूविंग वीडियो रेंडर कर रहा है...")
+            status.write(f"🎥 **सीन {idx+1}/{total}:** 3D मूविंग वीडियो रेंडर हो रहा है...")
             try:
                 client = Client(kaggle_url)
                 video_prompt = f"{char_desc}, {sentence}"
@@ -90,8 +90,13 @@ if st.button("🚀 Generate Complete 3D Moving Video", type="primary", use_conta
                     api_name="/predict"
                 )
                 
-                # जनरेट हुई असली वीडियो क्लिप को लोड करके ऑडियो के साथ लूप/फिट करना
-                clip = VideoFileClip(str(video_res))
+                # Gradio Dict आउटपुट से असली वीडियो पाथ निकालने का फिक्स
+                if isinstance(video_res, dict):
+                    raw_path = video_res.get("video") or video_res.get("path")
+                else:
+                    raw_path = str(video_res)
+                
+                clip = VideoFileClip(raw_path)
                 if clip.duration < dur:
                     clip = clip.loop(duration=dur)
                 else:
@@ -100,19 +105,19 @@ if st.button("🚀 Generate Complete 3D Moving Video", type="primary", use_conta
                 clip = clip.set_audio(audio_clip)
                 scene_clips.append(clip)
             except Exception as e:
-                status.write(f"⚠️ सीन {idx+1} रेंडरिंग में समस्या: {e}")
+                status.write(f"⚠️ सीन {idx+1} में समस्या: {e}")
 
         if scene_clips:
-            status.write("🎞️ सभी 3D क्लिप्स को जोड़कर फाइनल मास्टर वीडियो तैयार हो रहा है...")
+            status.write("🎞️ सभी क्लिप्स जोड़कर फाइनल 3D वीडियो बन रही है...")
             final_video = concatenate_videoclips(scene_clips, method="compose")
             out_file = "temp_render/dhyani_ai_master_video.mp4"
             final_video.write_videofile(out_file, fps=24, codec="libx264", audio_codec="aac", logger=None)
 
-            status.update(label="✅ 3D AI वीडियो सफलतापूर्वक तैयार!", state="complete")
-            st.success("🎉 आपकी 3D मूविंग वीडियो तैयार हो गई!")
+            status.update(label="✅ 3D वीडियो तैयार!", state="complete")
+            st.success("🎉 आपकी 3D वीडियो सफलतापूर्वक बन गई!")
             st.video(out_file)
             
             with open(out_file, "rb") as f:
-                st.download_button("📥 Download Final 3D Video (MP4)", f, file_name="dhyani_ai_3d_video.mp4", mime="video/mp4", use_container_width=True)
+                st.download_button("📥 Download Video (MP4)", f, file_name="dhyani_ai_3d_video.mp4", mime="video/mp4", use_container_width=True)
         else:
-            status.update(label="❌ वीडियो जनरेशन विफल रहा", state="error")
+            status.update(label="❌ कोई सीन रेंडर नहीं हो सका", state="error")
