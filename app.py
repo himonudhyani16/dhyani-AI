@@ -5,7 +5,6 @@ import os
 import re
 from PIL import Image
 
-# Pillow Compatibility Fix
 if not hasattr(Image, 'ANTIALIAS'):
     Image.ANTIALIAS = Image.Resampling.LANCZOS
 
@@ -32,7 +31,7 @@ kaggle_url = get_auto_kaggle_url()
 st.title("🎬 ध्यानी AI — 3D Video Studio")
 
 if kaggle_url:
-    st.success("🟢 AI GPU Video Engine कनेक्टेड है!")
+    st.success("🟢 AI GPU Lip-Sync Video Engine कनेक्टेड है!")
 else:
     st.warning("⚠️ Kaggle Engine कनेक्ट नहीं है। कृपया पहले Kaggle पर कोड रन करें।")
 
@@ -43,8 +42,8 @@ col1, col2 = st.columns([1.2, 1])
 with col1:
     story_text = st.text_area(
         "1. 📝 पूरी कहानी दर्ज करें:", 
-        height=180, 
-        placeholder="एक सुंदर जंगल में चीकू नाम का भालू खुशी से नाच रहा था..."
+        height=160, 
+        placeholder="एक सुंदर गाँव में गोलू नाम का खरगोश खुशी से उछल-कूद कर रहा था..."
     )
     voice = st.selectbox("2. 🎙️ कथावाचक वॉयस", [
         "Natural Male (Madhur - कथावाचक)", 
@@ -54,15 +53,23 @@ with col1:
 with col2:
     char_desc = st.text_input(
         "3. 👤 कैरेक्टर विवरण / प्रॉम्प्ट:", 
-        value="Cute fluffy baby bear cub in magical fairytale forest"
+        value="Cute fluffy baby squirrel in fairyland garden"
     )
+    
     # 🖼️ इमेज अपलोड बॉक्स
     custom_img = st.file_uploader(
-        "4. 🖼️ कैरेक्टर / संदर्भ फोटो अपलोड करें (वैकल्पिक):", 
+        "4. 🖼️ कैरेक्टर फोटो अपलोड करें (अनिवार्य):", 
         type=["png", "jpg", "jpeg"]
     )
-    if custom_img:
-        st.image(custom_img, caption="✅ चुनी गई संदर्भ इमेज", use_container_width=True)
+    
+    # 📐 आस्पेक्ट रेशियो बॉक्स
+    aspect_ratio = st.selectbox(
+        "5. 📐 वीडियो साइज़ / रेशियो चुनें:",
+        ["16:9 (YouTube Landscape)", "9:16 (Shorts / Reels Portrait)", "1:1 (Square)"]
+    )
+
+if custom_img:
+    st.image(custom_img, caption="✅ चुनी गई कैरेक्टर फोटो", width=220)
 
 VOICE_MAP = {
     "Natural Male (Madhur - कथावाचक)": "hi-IN-MadhurNeural",
@@ -84,41 +91,44 @@ def extract_valid_path(raw_res):
         return str(raw_res[0])
     return str(raw_res)
 
-if st.button("🚀 Generate Complete 3D Moving Video", type="primary", use_container_width=True):
+def resize_to_ratio(clip, ratio_type):
+    if ratio_type == "16:9 (YouTube Landscape)":
+        return clip.resize(height=720).crop(x1=clip.w/2 - 640, width=1280, height=720) if clip.w >= 1280 else clip.resize((1280, 720))
+    elif ratio_type == "9:16 (Shorts / Reels Portrait)":
+        return clip.resize(height=1280).crop(x1=clip.w/2 - 360, width=720, height=1280) if clip.w >= 720 else clip.resize((720, 1280))
+    else:
+        return clip.resize((720, 720))
+
+if st.button("🚀 Generate Complete 3D Lip-Sync Video", type="primary", use_container_width=True):
     if not kaggle_url:
-        st.error("❌ Kaggle बैकएंड कनेक्ट नहीं है! कृपया पहले Kaggle पर कोड चालू करें।")
+        st.error("❌ Kaggle बैकएंड कनेक्ट नहीं है!")
     elif not story_text.strip():
         st.error("❌ कृपया पहले कहानी दर्ज करें!")
+    elif not custom_img:
+        st.error("❌ कृपया लिप-सिंक के लिए कैरेक्टर की फोटो (Box 4) जरूर अपलोड करें!")
     else:
-        status = st.status("🎬 3D वीडियो प्रोडक्शन शुरू हो रहा है...", expanded=True)
+        status = st.status("🎬 वीडियो प्रोडक्शन शुरू हो रहा है...", expanded=True)
         os.makedirs("temp_render/scenes", exist_ok=True)
 
-        # अगर यूजर ने इमेज अपलोड की है तो उसे सेव करना
-        saved_img_path = None
-        if custom_img:
-            saved_img_path = "temp_render/custom_input_image.png"
-            with open(saved_img_path, "wb") as f:
-                f.write(custom_img.getbuffer())
+        saved_img_path = "temp_render/character_input.png"
+        with open(saved_img_path, "wb") as f:
+            f.write(custom_img.getbuffer())
 
         sentences = [s.strip() for s in re.split(r'[।\n\.]+', story_text) if len(s.strip()) > 3]
         total = len(sentences)
         scene_clips = []
 
         for idx, sentence in enumerate(sentences):
-            status.write(f"🎙️ **सीन {idx+1}/{total}:** आवाज़ तैयार हो रही है...")
+            status.write(f"🎙️ **सीन {idx+1}/{total}:** आवाज़ रिकॉर्ड हो रही है...")
             audio_path = f"temp_render/scenes/audio_{idx}.mp3"
             asyncio.run(generate_voice(sentence, VOICE_MAP[voice], audio_path))
-            audio_clip = AudioFileClip(audio_path)
-            dur = audio_clip.duration
 
-            status.write(f"🎥 **सीन {idx+1}/{total}:** कार्टून वीडियो रेंडर हो रहा है...")
+            status.write(f"👄 **सीन {idx+1}/{total}:** AI परफेक्ट लिप-सिंक रेंडर कर रहा है...")
             try:
                 client = Client(kaggle_url)
-                clean_char = char_desc.replace("3D", "").strip()
-                video_prompt = f"{clean_char}, action: {sentence}"
-                
                 video_res = client.predict(
-                    prompt=video_prompt,
+                    image_path=os.path.abspath(saved_img_path),
+                    audio_path=os.path.abspath(audio_path),
                     api_name="/predict"
                 )
                 
@@ -126,29 +136,24 @@ if st.button("🚀 Generate Complete 3D Moving Video", type="primary", use_conta
                 
                 if os.path.exists(real_path):
                     clip = VideoFileClip(real_path)
-                    if clip.duration < dur:
-                        clip = clip.loop(duration=dur)
-                    else:
-                        clip = clip.subclip(0, dur)
-                    
-                    clip = clip.set_audio(audio_clip)
+                    clip = resize_to_ratio(clip, aspect_ratio)
                     scene_clips.append(clip)
                 else:
-                    status.write(f"⚠️ सीन {idx+1} फ़ाइल नहीं मिली, आगे बढ़ रहे हैं...")
+                    status.write(f"⚠️ सीन {idx+1} रेंडर नहीं हो सका!")
             except Exception as e:
-                status.write(f"⚠️ सीन {idx+1} में समस्या: {e}")
+                status.write(f"⚠️ सीन {idx+1} एरर: {e}")
 
         if scene_clips:
             status.write("🎞️ सभी क्लिप्स जोड़कर फाइनल वीडियो बन रही है...")
             final_video = concatenate_videoclips(scene_clips, method="compose")
-            out_file = "temp_render/dhyani_ai_master_video.mp4"
-            final_video.write_videofile(out_file, fps=24, codec="libx264", audio_codec="aac", logger=None)
+            out_file = "temp_render/master_lipsync_video.mp4"
+            final_video.write_videofile(out_file, fps=25, codec="libx264", audio_codec="aac", logger=None)
 
             status.update(label="✅ वीडियो तैयार!", state="complete")
-            st.success("🎉 आपकी एनिमेटेड वीडियो सफलतापूर्वक बन गई!")
+            st.success("🎉 आपकी लिप-सिंक वीडियो तैयार हो गई!")
             st.video(out_file)
             
             with open(out_file, "rb") as f:
-                st.download_button("📥 Download Video (MP4)", f, file_name="dhyani_ai_animated_video.mp4", mime="video/mp4", use_container_width=True)
+                st.download_button("📥 Download Video (MP4)", f, file_name="final_lipsync_video.mp4", mime="video/mp4", use_container_width=True)
         else:
-            status.update(label="❌ कोई सीन रेंडर नहीं हो सका", state="error")
+            status.update(label="❌ कोई सीन नहीं बन पाया", state="error")
