@@ -1,6 +1,6 @@
 streamlit
+gradio_client
 edge-tts
 moviepy
-pillow
+Pillow
 requests
-fal-client
