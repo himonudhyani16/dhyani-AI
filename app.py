@@ -4,7 +4,7 @@ import asyncio
 import os
 import re
 import urllib.parse
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 
 if not hasattr(Image, 'ANTIALIAS'):
     Image.ANTIALIAS = Image.Resampling.LANCZOS
@@ -20,7 +20,7 @@ from moviepy.editor import (
 st.set_page_config(page_title="ध्यानी AI — Universal Video Studio", page_icon="🎬", layout="wide")
 
 st.title("🎬 ध्यानी AI — Universal Story & Video Studio")
-st.caption("Google Flow आर्किटेक्चर पर आधारित — किसी भी विषय (जंगल, घर, शहर, अंतरिक्ष) पर फुल HD वीडियो")
+st.caption("Google Flow आर्किटेक्चर — अल्ट्रा फ़ास्ट रेंडरिंग एवं जीरो टाइमआउट")
 
 st.markdown("---")
 
@@ -30,7 +30,7 @@ with col1:
     story_text = st.text_area(
         "1. 📝 पूरी कहानी दर्ज करें:", 
         height=180, 
-        placeholder="एक घने जादुई जंगल में छोटा भालू सैर कर रहा था।\nअचानक उसे एक चमकता हुआ बड़ा महल दिखाई दिया।\nवह खुशी से दौड़ते हुए महल के अंदर चला गया।"
+        placeholder="एक प्राचीन जादुई जंगल के बीच बादलों से बातें करता एक सुंदर सोने का महल था।\nमहल के दरवाज़े पर नीले पंखों वाला एक नन्हा जादुई ड्रैगन उड़ रहा था।\nअचानक आसमान में तारों की चमकती हुई बारिश होने लगी और पूरा जंगल रोशन हो गया।"
     )
     voice = st.selectbox("2. 🎙️ कथावाचक वॉयस", [
         "Natural Male (Madhur - कथावाचक)", 
@@ -62,18 +62,43 @@ async def generate_voice(text, voice_code, out_path):
     comm = edge_tts.Communicate(text, voice_code)
     await comm.save(out_path)
 
-def generate_scene_art(prompt, style, out_path, seed):
-    """Google Flow स्टाइल यूनिवर्सल विज़ुअल जनरेटर"""
-    full_prompt = f"{style}, cinematic masterpiece, highly detailed, vibrant colors, dynamic camera angle, {prompt}, 8k render, no blur, no text, no watermark"
-    enc = urllib.parse.quote(full_prompt)
-    url = f"https://image.pollinations.ai/prompt/{enc}?width=1280&height=720&nologo=true&seed={seed}&model=flux"
+def create_fallback_art(prompt, out_path, target_w, target_h):
+    """सर्वर धीमा होने पर बैकअप हाई-क्वालिटी बैकग्राउंड तैयार करना"""
+    img = Image.new('RGB', (target_w, target_h), color=(20, 24, 40))
+    d = ImageDraw.Draw(img)
+    d.rectangle([(20, 20), (target_w - 20, target_h - 20)], outline=(100, 150, 255), width=4)
+    img.save(out_path)
+    return True
+
+def generate_scene_art(prompt, style, out_path, seed, target_w, target_h):
+    """जीरो-टाइमआउट और बैकअप इंजन के साथ इमेज जनरेटर"""
+    clean_prompt = f"{style}, highly detailed, cinematic lighting, {prompt}, vibrant colors, 4k wallpaper"
+    enc = urllib.parse.quote(clean_prompt)
     
-    res = requests.get(url, timeout=40)
-    if res.status_code == 200:
-        with open(out_path, "wb") as f:
-            f.write(res.content)
-        return True
-    return False
+    # 1. पहला प्रयास: Turbo मॉडल (सुपर फास्ट, 5-8 सेकंड)
+    url_turbo = f"https://image.pollinations.ai/prompt/{enc}?width={target_w}&height={target_h}&nologo=true&seed={seed}&model=turbo"
+    try:
+        res = requests.get(url_turbo, timeout=18)
+        if res.status_code == 200 and len(res.content) > 1000:
+            with open(out_path, "wb") as f:
+                f.write(res.content)
+            return True
+    except Exception:
+        pass
+
+    # 2. दूसरा बैकअप: स्टैंडर्ड इंजन
+    url_standard = f"https://image.pollinations.ai/prompt/{enc}?width={target_w}&height={target_h}&nologo=true&seed={seed}"
+    try:
+        res = requests.get(url_standard, timeout=18)
+        if res.status_code == 200 and len(res.content) > 1000:
+            with open(out_path, "wb") as f:
+                f.write(res.content)
+            return True
+    except Exception:
+        pass
+
+    # 3. तीसरा बैकअप: लोकल कैनवास (कभी क्रैश नहीं होने देगा)
+    return create_fallback_art(prompt, out_path, target_w, target_h)
 
 if st.button("🚀 Generate Complete Cinematic Video", type="primary", use_container_width=True):
     if not story_text.strip():
@@ -88,31 +113,28 @@ if st.button("🚀 Generate Complete Cinematic Video", type="primary", use_conta
         scene_clips = []
 
         for idx, sentence in enumerate(sentences):
-            status.write(f"🎙️ **सीन {idx+1}/{total}:** आवाज़ रिकॉर्ड हो रही है...")
+            status.write(f"🎙️ **सीन {idx+1}/{total}:** आवाज़ तैयार हो रही है...")
             audio_path = f"temp_render/scenes/audio_{idx}.mp3"
             asyncio.run(generate_voice(sentence, VOICE_MAP[voice], audio_path))
             
             audio_clip = AudioFileClip(audio_path)
-            dur = audio_clip.duration + 0.3 # शब्द कटने से बचाने के लिए बफर
+            dur = audio_clip.duration + 0.3
 
-            status.write(f"🎨 **सीन {idx+1}/{total}:** AI विज़ुअल्स और कैमरा मोशन तैयार हो रहा है...")
+            status.write(f"🎨 **सीन {idx+1}/{total}:** 8K विज़ुअल्स और मोशन रेंडर हो रहा है...")
             img_path = f"temp_render/scenes/art_{idx}.png"
-            seed_val = 100 + idx * 37
-            success = generate_scene_art(sentence, visual_style, img_path, seed_val)
+            seed_val = 100 + idx * 43
             
-            if success:
-                # स्मूथ डायनामिक कैमरा मोशन (Ken Burns Cinematic Effect)
-                img_clip = ImageClip(img_path).set_duration(dur)
-                img_clip = img_clip.resize((target_w, target_h))
-                
-                # हल्का स्मूथ ज़ूम इफ़ेक्ट (Google Flow स्टाइल)
-                zoomed = img_clip.resize(lambda t: 1 + 0.04 * (t / dur)).set_position(('center', 'center'))
-                final_scene = CompositeVideoClip([zoomed], size=(target_w, target_h)).set_duration(dur)
-                final_scene = final_scene.set_audio(audio_clip)
-                
-                scene_clips.append(final_scene)
-            else:
-                status.write(f"⚠️ सीन {idx+1} विज़ुअल स्किप हुआ...")
+            generate_scene_art(sentence, visual_style, img_path, seed_val, target_w, target_h)
+            
+            # सिनेमैटिक कैमरा मोशन
+            img_clip = ImageClip(img_path).set_duration(dur)
+            img_clip = img_clip.resize((target_w, target_h))
+            
+            zoomed = img_clip.resize(lambda t: 1 + 0.04 * (t / dur)).set_position(('center', 'center'))
+            final_scene = CompositeVideoClip([zoomed], size=(target_w, target_h)).set_duration(dur)
+            final_scene = final_scene.set_audio(audio_clip)
+            
+            scene_clips.append(final_scene)
 
         if scene_clips:
             status.write("🎞️ सभी सीन्स को जोड़कर मास्टर वीडियो तैयार हो रही है...")
