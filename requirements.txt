@@ -1,6 +1,6 @@
 streamlit
 gradio_client
 edge-tts
-moviepy
+moviepy==1.0.3
 Pillow
 requests
